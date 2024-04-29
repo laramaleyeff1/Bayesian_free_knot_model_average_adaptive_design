@@ -1,2 +1,1 @@
-# Bayesian_free_knot_model_average_adaptive_design
- 
+# Bayesian_free_knot_model_averaging_adaptive_design
