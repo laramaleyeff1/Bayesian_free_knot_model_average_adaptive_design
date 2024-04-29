@@ -47,7 +47,7 @@ library(plyr)
 no_cont = 1
 no_bin = 5
 
-# sim_iters: Number of simulation interations, when index = 0 we are testing so
+# sim_iters: Number of simulation iterations, when index = 0 we are testing so
 # only one iteration is run
 sim_iters = 10
 if (index == 0) {
@@ -141,6 +141,7 @@ if (scenario == 8) {
   data_test$truth = scen_8(data_test$X_1)
 }
 
+# "true_trt" = 1 if treatment is truly effective and = 0 if not
 data_test$true_trt = as.numeric(data_test$truth > 0)
 
 # Function to generate data pool based on scenario considered. Returns data

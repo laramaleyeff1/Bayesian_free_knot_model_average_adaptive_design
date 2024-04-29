@@ -415,11 +415,11 @@ runMHLiu <- function(curdata,
   }
 }
 #
-# function getCutoffLiu
+# function parseMHLiu
 #
 # Author: Lara Maleyeff
 #
-# Function:       getCutoffLiu
+# Function:       parseMHLiu
 # Description:    Internal function to find the alpha-quantile of the posterior treatment effect distribution for
 #                 each individual (row). It uses the model that was fit in the most recent interim analysis (original data) to 
 #                 find the alpha-quantiles of external data (used for either the adaptive enrichment steps or 
@@ -435,7 +435,7 @@ runMHLiu <- function(curdata,
 #                                   - intKnots: the internal knots used for the original continuous variables
 #                                   - numIntKnots: the number of internal knots for each continuous variable
 #                 alpha             alpha used for the effective subspace in paper
-#                 pi  Not used
+#                 pi                Not used
 #
 # Returns:        alpha-row quantile for each individuals to then be compared with 0. If
 #                 the alpha-quantile of the treatment effect is > 0 then that individual's
@@ -507,7 +507,7 @@ parseMHLiu <- function(curdata,
 #                                   - xrange: the range of the original continuous variables
 #                                   - intKnots: the internal knots used for the original continuous variables
 #                                   - numIntKnots: the number of internal knots for each continuous variable
-#                 alpha             alpha used for the effective subspace in paper
+#                 alpha             alpha used to define effective subspace in paper
 #
 # Returns:        alpha-row quantile for each individuals to then be compared with 0. If
 #                 the alpha-quantile of the treatment effect is > 0 then that individual's

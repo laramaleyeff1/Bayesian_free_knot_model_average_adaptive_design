@@ -1,3 +1,12 @@
+######################################################################################################
+#                             Simulation Study II of Maleyeff et al. (2024)      
+#           Compares MCMC procedures of Liu et al. (2022) with proposed method, using proposed 
+#                 design for both. Assumes 2 continuous candidate tailoring variables
+#                                 Results are in Table 4 of manuscript.
+#                                   Contact: laramaleyeff@gmail.com                                  
+#                                       Last updated: April 2024                                       
+######################################################################################################
+
 start_time = Sys.time()
 
 params <- commandArgs(trailingOnly=TRUE)
@@ -20,29 +29,45 @@ source("run_full_trial.R")
 library(doParallel)
 library(plyr)
 
-numIntKnots = 5
+# no_cont: Number of continuous candidate tailoring variables
+# no_bin: Number of binary candidate tailoring variables
 no_cont = 2
 no_bin = 0
+
+# sim_iters: Number of simulation iterations, when index = 0 we are testing so
+# only one iteration is run
 sim_iters = 10
 if (index == 0) {
   sim_iters = 1
 }
 
-# Sparsity parameters for Park et al. (2022), not used here
+# numIntKnots: Number of internal knots for penalized spline terms
+numIntKnots = 5
+
+# (Depreciated) Sparsity parameters for Park et al. (2022), not used here but 
+# can be adapted to include these results
 mu = 10
 tau = 0.1
 
+# Cutoff for futility
 B_2 = 0.8
 
+# n_pool: Size of the population pool from which we sample during the trial
+# n_test: Size of the external dataset on which accuracy is calcualted
 n_pool = 5000
 n_test = 10000
 
+# Names of the candidate continuous and binary variables
 candsplinevars = paste0("X_", 1:(no_cont))
 candbinaryvars = c()
 
+# interim_n: vector with length equal to the number of interim analyses to be 
+# performed, denoting how many individuals are added to the sample at each one.
+# Here, the total sample size is 500 with one interim analysis at 300 individuals.
 interim_n = c(300,200)
 
-# Functions for each scenario
+# Functions describing the functional form of the interaction term for each 
+# true tailoring variable. See Table 1 for a description.
 scen_1 = 0
 scen_2 = 0.35
 scen_3 <- function(x) {
@@ -66,6 +91,8 @@ scen_8 <- function(x1,x2) {
  return(2.3*(x1 - 0.5) + cos(x2*2*pi)) 
 }
 
+# Generate external dataset to assess accuracy of treatment recommendations
+# at the end of each trial
 data_test =  data.frame(X_1 = runif(n_test,0,1),
                         X_2 = runif(n_test,0,1),
                         trt = 1)
@@ -102,8 +129,13 @@ if (scenario == 8) {
   data_test$truth = scen_8(data_test$X_1,data_test$X_2)
 }
 
+# "true_trt" = 1 if treatment will be effective and = 0 if not
 data_test$true_trt = as.numeric(data_test$truth > 0)
 
+# Function to generate data pool based on scenario considered. Returns data
+# and a vector "true_tailoring_vars" containing the names of the true tailoring variables.
+# This will be compared with the selected tailoring variables to determine correct marker
+# detection rates.
 generate_data <- function(scenario) {
   data_pool = data.frame(X_1 = runif(n_pool,0,1),
                          X_2 = runif(n_pool,0,1),
@@ -165,10 +197,11 @@ if (index != 0) {
   # This is for SLURM. Replace SLURM_CPUS_PER_TASK by the proper variable for your system.
   # Avoid manually setting a number of cores.
   ncores = Sys.getenv("SLURM_CPUS_PER_TASK")
-  registerDoParallel(cores=ncores)# Shows the number of Parallel Workers to be used
+  registerDoParallel(cores=ncores) 
   
 }
 
+# Run the simulation study
 results = foreach(i=1:sim_iters, .combine='rbind.fill') %dopar% {
   print(paste("iteration", i))
   datas = generate_data(scenario)
@@ -197,6 +230,7 @@ results = foreach(i=1:sim_iters, .combine='rbind.fill') %dopar% {
   results_liu$time = difftime(end_time_liu, start_time_liu, units = "mins")
   colnames(results_liu) = paste0("liu_",colnames(results_liu))
 
+  # We don't include Park's results in simulation study, but they can be included
   if (FALSE) {
     print("Park")
     start_time_park = Sys.time()
@@ -275,7 +309,7 @@ results$candsplinevars = paste(candsplinevars,collapse=",")
 end_time = Sys.time()
 results$time = difftime(end_time, start_time, units = "mins")
 print(results$time)
-setwd("results_two_interim")
+setwd("results")
 out.name = paste0("all_trials_", paste( "scen", scenario,
                                         "B_1", B_1,
                                         "B_2", B_2,

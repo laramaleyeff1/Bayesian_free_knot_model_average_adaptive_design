@@ -1,6 +1,60 @@
+######################################################################################################
+#           Code to run a Bayesian adaptive design with interim decision rules described in 
+#           Section 2.4 of Maleyeff et al. (2024). This outer shell is used with all three
+#                       models (proposed FK-BMA, PLTY, and LKR) in the manuscript.
+#                                   Contact: laramaleyeff@gmail.com                                  
+#                                       Last updated: April 2024                                       
+######################################################################################################
+
+# First, load the code for each model fitting procedure
 source("mcmc_liu.R")
 source("mcmc_park.R")
 source("mcmc_maleyeff.R")
+#
+# function interimAnalysis
+#
+# Author: Lara Maleyeff
+#
+# Function:       interimAnalysis
+# Description:    Perform one interim analysis: fit the respective model based on currently
+#                 available data and assess whether the trial should be stopped for efficacy or futility
+# Parameters:     trialfunction     function to fit the appropriate model
+#                 curdata           A data frame with the observations arranged by row, and including the columns:
+#                                   - trt: the group indicator (=1 for experimental group; =0 for control group)
+#                                   - Y: outcome
+#                                   - One column for each of candsplinevars, named appropriately (i.e. if
+#                                     candsplinevars = c("X_1","X_2) then there are two respective columns 
+#                                     named "X_1" and "X_2)
+#                                   - One column for each of candbinaryvars
+#                 candpslinevars    Vector with names of continuous variables
+#                 candbinaryvars    Vector with names of binary variables
+#                 last              Boolean indicating whether this is the last interim analysis (if so, an 
+#                                   assessment of futility is unnecessary)
+#                 family            Family and link function of outcome, defaults to continuous
+#                 B                 The number of posterior samples (defaults to 10000)
+#                 burnin            The number of burn-in samples (defaults to 5000)
+#                 thin              The thinning parameter
+#                 alpha             Cutoff for effective subspace
+#                 B_1               Efficacy cutoff (significance)
+#                 B_2               Futility cutoff (significance)
+#                 b_1               Efficacy cutoff (magnitude)
+#                 b_2               Futility cutoff (magnitude)
+#                 e_1               Cutoff for effective subspace magnitude
+#                 pi                Cutoff for prevalence of the effective subspace
+#
+# Returns:        If the fitting procedure is successful, the function returns a list with:
+#                 - success: Indicates whether the procedure was successful based on geweke convergence
+#                 - included_vars: Selected tailoring variables based on cutoff pi 
+#                 - stop_efficacy: Boolean indicating whether the trial is to be stopped for efficacy
+#                 - stop_futility: Boolean indicating whether the trial is to be stopped for futility
+#                 - mse: Mean squared error of each individual's treatment effect estimate
+#                 - prop_eff: The prevalence of the effective subspace
+#                 - trial_results: Results from the given interim analysis, contains a list with method-specific
+#                   entries. All include the posterior distribution of treatment effect for each individual
+#                 - mean_subgroup_ate: The average treatment effect in the effective subspace (used for debugging)
+#                 - mean_subgroup_ate_gr_cutoff: Proportion of effective subspace who met the efficacy criteria (used for debugging)
+#                 - mean_subgroup_ate_l_cutoff: Proportion of effective subspace who met the futility criteria  (used for debugging)
+#                 If the procedure is not successful, the function returns list(success = FALSE)
 interimAnalysis <- function(trialfunction,
                             curdata,
                             candsplinevars,
@@ -62,10 +116,7 @@ interimAnalysis <- function(trialfunction,
       mean_subgroup_ate = mean(combined_subgroup_ate)
       mean_subgroup_ate_gr_cutoff = mean(combined_subgroup_ate > b_1)
       mean_subgroup_ate_l_cutoff = mean(combined_subgroup_ate < b_2)
-      
-      print(paste("combined_subgroup_ate", mean(combined_subgroup_ate)))
-      print(paste("mean(combined_subgroup_ate > b_1)", mean(combined_subgroup_ate > b_1) ))
-      
+
       if (mean(combined_subgroup_ate > b_1) > B_1) {
         stop_efficacy = TRUE
       } 
@@ -81,7 +132,6 @@ interimAnalysis <- function(trialfunction,
     print(paste("stop_efficacy",stop_efficacy))
     
     return(list(success = TRUE,
-                geweke.conv = trial_results$geweke.conv,
                 included_vars = trial_results$included_vars,
                 stop_efficacy = stop_efficacy, 
                 stop_futility = stop_futility,
@@ -100,6 +150,57 @@ interimAnalysis <- function(trialfunction,
 
 }
 
+#
+# function runTrial
+#
+# Author: Lara Maleyeff
+#
+# Function:       runTrial
+# Description:    Run complete Bayesian adaptive trial
+# Parameters:     data_pool         A population data frame with the observations arranged by row, and including the columns:
+#                                   - trt: the group indicator (=1 for experimental group; =0 for control group)
+#                                   - Y: outcome
+#                                   - One column for each of candsplinevars, named appropriately (i.e. if
+#                                     candsplinevars = c("X_1","X_2) then there are two respective columns 
+#                                     named "X_1" and "X_2)
+#                                   - One column for each of candbinaryvars
+#                 data_test         A large, external testing data frame with the observations arranged by row, and including the columns:
+#                                   - One column for each of candsplinevars, named appropriately (i.e. if
+#                                     candsplinevars = c("X_1","X_2) then there are two respective columns 
+#                                     named "X_1" and "X_2)
+#                                   - One column for each of candbinaryvars
+#                                   - true_trt: = 1 if treatment is truly effective and = 0 if not
+#                 candpslinevars    Vector with names of continuous variables
+#                 candbinaryvars    Vector with names of binary variables
+#                 trialfunction     function to fit the appropriate model
+#                 quantilefunction  function to compute the alpha-row quantile for each individual
+#                 family            Family and link function of outcome, defaults to continuous
+#                 true_tailoring vars 
+#                 B                 The number of posterior samples (defaults to 10000)
+#                 burnin            The number of burn-in samples (defaults to 5000)
+#                 thin              The thinning parameter
+#                 alpha             Cutoff for effective subspace
+#                 B_1               Efficacy cutoff (significance)
+#                 B_2               Futility cutoff (significance)
+#                 b_1               Efficacy cutoff (magnitude); defaults to 0
+#                 b_2               Futility cutoff (magnitude); defaults to 0
+#                 e_1               Cutoff for effective subspace magnitude; defaults to 0
+#                 pi                Cutoff for prevalence of the effective subspace
+#                 enrich            Boolean indicating whether we should perform adaptive enrichment (defaults to TRUE)
+#
+# Returns:        If the fitting procedure is successful, the function returns a list with:
+#                 - success: Indicates whether the procedure was successful based on geweke convergence
+#                 - included_vars: Selected tailoring variables based on cutoff pi 
+#                 - stop_efficacy: Boolean indicating whether the trial is to be stopped for efficacy
+#                 - stop_futility: Boolean indicating whether the trial is to be stopped for futility
+#                 - mse: Mean squared error of each individual's treatment effect estimate
+#                 - prop_eff: The prevalence of the effective subspace
+#                 - trial_results: Results from the given interim analysis, contains a list with method-specific
+#                   entries. All include the posterior distribution of treatment effect for each individual
+#                 - mean_subgroup_ate: The average treatment effect in the effective subspace (used for debugging)
+#                 - mean_subgroup_ate_gr_cutoff: Proportion of effective subspace who met the efficacy criteria (used for debugging)
+#                 - mean_subgroup_ate_l_cutoff: Proportion of effective subspace who met the futility criteria  (used for debugging)
+#                 If the procedure is not successful, the function returns list(success = FALSE)
 runTrial <- function(data_pool,
                      data_test,
                      candsplinevars,
@@ -108,17 +209,17 @@ runTrial <- function(data_pool,
                      quantilefunction,
                      family = gaussian(),
                      true_tailoring_vars,
-                     alpha = 0.5,
-                     B_1 = 0.975,
-                     B_2 = 0.8,
                      B,
                      burnin,
                      thin,
-                     pi = 0.1,
                      interim_n,
+                     alpha = 0.5,
+                     B_1 = 0.975,
+                     B_2 = 0.8,
                      b_1 = 0,
                      b_2 = 0,
                      e_1 = 0,
+                     pi = 0.1,
                      enrich = TRUE,
                      ...
 ) {
@@ -213,8 +314,6 @@ runTrial <- function(data_pool,
                         B = B,
                         burnin = burnin,
                         thin = thin,
-                        B_1 = B_1,
-                        B_2 = B_2,
                         b_1 = b_1,
                         b_2 = b_2,
                         e_1 = e_1,

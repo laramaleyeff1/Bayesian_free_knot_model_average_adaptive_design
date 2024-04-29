@@ -711,7 +711,7 @@ parseMHMaley <- function(curdata,
 # Parameters:     data              A data frame with one individual per row and information on candsplineinter and candbinaryinter
 #                 candsplinevars    Vector with names of continuous variables (not used)
 #                 candbinaryvars    Vector with names of binary variables (not used)
-#                 trial_results     Results from most recent interim analysis, a data frame containing:
+#                 trial_results     Results from most recent interim analysis, a list containing:
 #                                   - included_vars: selected tailoring variables
 #                                   - candsplineinter: candidate spline tailoring variables
 #                                   - candbinaryinter: candidate binary tailoring variables
