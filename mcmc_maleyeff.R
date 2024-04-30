@@ -659,14 +659,49 @@ runMHMaley <- function(data,
 
 }
 
+#
+# function parseMHMaley
+#
+# Author: Lara Maleyeff
+#
+# Function:       parseMHMaley
+# Description:    Function to parse MCMC results of proposed method
+# Parameters:     curdata           A data frame with the observations arranged by row, and including the column:
+#                                   - trt: the group indicator (=1 for experimental group; =0 for control group)
+#                                   - Y: outcome
+#                                   - variables (candsplinevars, candbinaryvars) in the columns
+#                 candpslinevars    Vector with names of continuous variables
+#                 candbinaryvars    Vector with names of binary variables
+#                 family            Family and link function of outcome, defaults to gaussian()
+#                 B                 The number of posterior samples
+#                 burnin            The number of burn-in samples
+#                 thin              The thinning parameter
+#                 pi                Not used
+#
+# Returns:        If the fitting procedure was successful, the function returns a list with:
+#                 - unparsed_results: The results of MCMC procedure
+#                 - trt_eff_posterior: The posterior distribution of treatment effect for each individual (no. ind x B)
+#                 - prop_incl: Posterior probability of inclusion for each variable
+#                 - data_fit: Data used to fit the model, used later for linear interpolation on an external dataset
+#                 - included_vars: Selected tailoring variables
+#                 - candsplineinter: candidate continuous tailoring variables (because runMHMaley allows for set of predictive
+#                   variables to differ from tailoring variables)
+#                 - candbinaryinter: Candidate binary tailoring variables
+#                 - trt_param: Posterior distribution of treamtent effect
+#                 - binary_param: Posterior distribution of the binary tailoring effects
+#                 - splines_fitted: List of matrices containing the posterior distribution of the fitted values for 
+#                   inidividual for each spline term
+#                 - success: Indicates whether the procedure was successful based on geweke convergence
+#                 If the fitting procedure failed, returns list(success = FALSE))
+
 parseMHMaley <- function(curdata, 
                          candsplinevars, 
                          candbinaryvars,
                          family,
-                         B = 2000, 
-                         burnin = 25000,
-                         thin = 5,
-                         pi = 0.1,
+                         B, 
+                         burnin,
+                         thin,
+                         pi,
                          ...) {
   
   candinter = c(candsplinevars, candbinaryvars)

@@ -1,3 +1,39 @@
+######################################################################################################
+#           Implementation of MCMC procedure of Park et al. (2022) for continuous outcomes     
+#                                   Contact: laramaleyeff@gmail.com                                  
+#                                       Last updated: April 2024                                       
+######################################################################################################
+
+#
+# function runMHPark
+#
+# Author: Lara Maleyeff (procedure created by Park et al.)
+#
+# Function:       runMHPark
+# Description:    Perform MCMC to generate posterior samples of model coefficients using spike and slab priors
+#                 for variable selection
+# Parameters:     data           A data frame with the observations arranged by row, and including the column:
+#                                   - trt: the group indicator (=1 for experimental group; =0 for control group)
+#                                   - Y: outcome
+#                                   - a column for each candvars
+#                 candvars          Vector with names of candidate tailoring variables
+#                 mod_mat           Model matrix based on data, assumes model is of the form
+#                                   Y ~ var1 + var2 + ... + varp + trt + trt*(var1 + var2 + ... + varp)
+#                 B                 The number of posterior samples
+#                 burnin            The number of burn-in samples
+#                 thin              The thinning parameter
+#                 family            Family and link function of outcome, defaults to gaussian()
+#                 mu                Sparsity parameter
+#                 tau               Sparsity parameter
+# Returns:        If the fitting procedure was successful, the function returns a list with:
+#                 - success: Indicates whether the procedure was successful based on geweke convergence
+#                 - chain: Posterior distribution of each model coefficient
+#                 - trt_eff_posterior: Posterior distribution of the treatment effect for each individual
+#                 - p: Posterior distribution of probability of inclusion for each variable
+#                 - vars_prop: Posterior distribution of indicators denoting which variables are included in each model
+#                 - sd: Posterior distribution of individual-level standard deviation
+#                 - indices: Vector with indices of the treatment effect coefficients
+#                 If the fitting procedure failed, the function returns list(success = FALSE) 
 runMHPark <- function(data, 
                       startvalue, 
                       candvars,
@@ -6,22 +42,20 @@ runMHPark <- function(data,
                       burnin,
                       thin,
                       family = gaussian(link = "identity"),
-                      mu = 200,
-                      tau = 0.1
+                      mu,
+                      tau
                       ) {
   library(coda)
   iterations = B*thin + burnin
   n_params = length(startvalue) - 1
   n_vars = (n_params-2)/2
-  accept = array(dim = c(iterations,n_params))
   sd = array(dim = c(iterations,1))
   chain = array(dim = c(iterations+1,n_params))
   vars_prop = array(dim = c(iterations+1,n_params - 1))
   p = array(dim = c(iterations+1,n_params - 1))
   chain[1,] = startvalue[-1]
   colnames(chain) = names(startvalue[-1])
-  colnames(accept) = names(startvalue[-1])
-  
+
   sd[1] = startvalue[1]
   
 
@@ -109,17 +143,12 @@ runMHPark <- function(data,
   
   if (!is.na(geweke.conv) & geweke.conv) {
     return(list(success = TRUE,
-                geweke.conv = geweke.conv,
-                chain_res = chain_res, 
+                chain = chain_res, 
                 trt_eff_posterior = trt_eff_posterior,
-                indices = indices,
-                p_res = p_res, 
-                vars_prop_res = vars_prop_res, 
-                sd_res = sd_res, 
-                accept = accept,
-                geweke.sd_res = geweke.sd_res,
-                geweke.trt = geweke.trt,
-                geweke.trt_eff_posterior = geweke.trt_eff_posterior
+                p = p_res, 
+                vars_prop = vars_prop_res, 
+                sd = sd_res, 
+                indices = indices
                 ))
   } else {
     return(list(success = FALSE))
@@ -138,15 +167,11 @@ parseMHPark <- function(curdata,
                         ...) {
   candvars = c(candsplinevars, candbinaryvars)
   formula_all = paste0("Y ~ ", paste(c(candvars,paste0(candvars, "*trt")),collapse="+"))
-  if (family$family == "gaussian") {
-    mod_ols = lm(as.formula(formula_all), data=curdata)
-    startvalue = c(sigma(mod_ols),
-                   coef(mod_ols)
-    )
-  } else {
-    mod_ols = glm(as.formula(formula_all), data=curdata, family = family)
-    startvalue = coef(mod_ols)
-  }
+  mod_ols = lm(as.formula(formula_all), data=curdata)
+  startvalue = c(sigma(mod_ols),
+                 coef(mod_ols)
+  )
+  
   
   mod_mat = model.matrix(mod_ols)
   unparsed_results = runMHPark(curdata, 
@@ -162,8 +187,8 @@ parseMHPark <- function(curdata,
   if (!unparsed_results$success) {
     return(list(success = FALSE))
   } else {
-    prop_incl = colMeans(unparsed_results$vars_prop_res > 0)
-    names(prop_incl) = colnames(unparsed_results$vars_prop_res)
+    prop_incl = colMeans(unparsed_results$vars_prop > 0)
+    names(prop_incl) = colnames(unparsed_results$vars_prop)
     included_vars = names(which(prop_incl > pi))
     included_vars = included_vars[grep(":trt",included_vars)]
     included_vars = sub(":trt", "", included_vars)

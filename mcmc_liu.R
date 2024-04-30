@@ -420,32 +420,36 @@ runMHLiu <- function(curdata,
 # Author: Lara Maleyeff
 #
 # Function:       parseMHLiu
-# Description:    Internal function to find the alpha-quantile of the posterior treatment effect distribution for
-#                 each individual (row). It uses the model that was fit in the most recent interim analysis (original data) to 
-#                 find the alpha-quantiles of external data (used for either the adaptive enrichment steps or 
-#                 accuracy calculations)
-#                 Note: some parameters (candbinaryvars, pi) are not used here. They are included
-#                 so the parameters of this function matches the other cutoff functions (Maleyeff and Park)
-# Parameters:     data              A data frame with one individual per row and information on the continuous 
-#                                   variables (candsplinevars) in the columns
+# Description:    Function to parse MCMC results of Liu et al. (2022)
+# Parameters:     curdata           A data frame with the observations arranged by row, and including the column:
+#                                   - trt: the group indicator (=1 for experimental group; =0 for control group)
+#                                   - Y: outcome
+#                                   - variables (candsplinevars) in the columns
 #                 candpslinevars    Vector with names of continuous variables
 #                 candbinaryvars    Not used
-#                 trial_results     Results from most recent interim analysis, a data frame containing:
-#                                   - xrange: the range of the original continuous variables
-#                                   - intKnots: the internal knots used for the original continuous variables
-#                                   - numIntKnots: the number of internal knots for each continuous variable
-#                 alpha             alpha used for the effective subspace in paper
+#                 family            Family and link function of outcome, defaults to gaussian()
+#                 B                 The number of posterior samples
+#                 burnin            The number of burn-in samples
+#                 thin              The thinning parameter
 #                 pi                Not used
 #
-# Returns:        alpha-row quantile for each individuals to then be compared with 0. If
-#                 the alpha-quantile of the treatment effect is > 0 then that individual's
-#                 variable combination is in the effective subspace
+# Returns:        If the fitting procedure was successful, the function returns a list with:
+#                 - unparsed_results: The results of MCMC procedure
+#                 - mcmc_coefs: The posterior distribution for each model coefficient (no. coef x B)
+#                 - trt_eff_posterior: The posterior distribution of treatment effect for each individual (no. ind x B)
+#                 - xrange: Range for each continuous variable, used for computing the effective subspace for external dataset
+#                 - intKnots: Matrix with the value of internal knots for each spline function
+#                 - numIntKnots: The number of internal knots for each spline function
+#                 - included_vars: selected tailoring variables, will always be equal to candsplinevars because no
+#                   variable selection occurs
+#                 - success: Indicates whether the procedure was successful based on geweke convergence
+#                 If the fitting procedure failed, returns list(success = FALSE))
 parseMHLiu <- function(curdata, 
                        candsplinevars, 
                        candbinaryvars,
-                       family,
-                       B = 10000, 
-                       burnin = 5000,
+                       family = gaussian(),
+                       B, 
+                       burnin,
                        thin,
                        pi,
                        ...
