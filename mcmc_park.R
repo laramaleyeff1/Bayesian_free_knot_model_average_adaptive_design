@@ -31,7 +31,7 @@
 #                 - trt_eff_posterior: Posterior distribution of the treatment effect for each individual
 #                 - p: Posterior distribution of probability of inclusion for each variable
 #                 - vars_prop: Posterior distribution of indicators denoting which variables are included in each model
-#                 - sd: Posterior distribution of individual-level standard deviation
+#                 - sigma2: Posterior distribution of individual-level variance
 #                 - indices: Vector with indices of the treatment effect coefficients
 #                 If the fitting procedure failed, the function returns list(success = FALSE) 
 runMHPark <- function(data, 
@@ -49,14 +49,14 @@ runMHPark <- function(data,
   iterations = B*thin + burnin
   n_params = length(startvalue) - 1
   n_vars = (n_params-2)/2
-  sd = array(dim = c(iterations,1))
+  sigma2 = array(dim = c(iterations,1))
   chain = array(dim = c(iterations+1,n_params))
   vars_prop = array(dim = c(iterations+1,n_params - 1))
   p = array(dim = c(iterations+1,n_params - 1))
   chain[1,] = startvalue[-1]
   colnames(chain) = names(startvalue[-1])
 
-  sd[1] = startvalue[1]
+  sigma2[1] = startvalue[1]
   
 
   # Always include the intercept
@@ -98,15 +98,17 @@ runMHPark <- function(data,
       # so we want to reset the proposal to reflect its current value
       if (indicators[j] == 1) {
         sigma2_beta_j <- ifelse((j == 1 | j == n_vars + 1), tau_0, tau*mu)
-        V_beta_j <- 1 / (t(mod_mat[, j]) %*% mod_mat[, j] / sd[i] + 1 / sigma2_beta_j)
-        beta_j_hat <- V_beta_j * t(mod_mat[, j]) %*% (data$Y - mod_mat[, -j] %*% chain[i+1, -j]) / sd[i]
+        # V_beta_j = 1/ (X_j^t X_j / sigma2 + 1 / sigma2_beta_j)
+        V_beta_j <- 1 / (t(mod_mat[, j]) %*% mod_mat[, j] / sigma2[i] + 1 / sigma2_beta_j)
+        # beta_j_hat = V_beta_j * X_j^t (Y-X_[-j]hat(beta)_[-j]) / sigma2[i]
+        beta_j_hat <- V_beta_j * t(mod_mat[, j]) %*% (data$Y - mod_mat[, -j] %*% chain[i+1, -j]) / sigma2[i]
         chain[i+1, j] <- rnorm(1, beta_j_hat, sqrt(V_beta_j))
       } 
     }
    
     
     resids = data$Y - chain[i+1,] %*% t(mod_mat)
-    sd[i+1] <- 1/rgamma(1, shape=nrow(data)/2+a_0, rate=sum(resids^2)/2+b_0)
+    sigma2[i+1] <- 1/rgamma(1, shape=nrow(data)/2+a_0, rate=sum(resids^2)/2+b_0)
   
 
   }
@@ -124,8 +126,8 @@ runMHPark <- function(data,
   names(p_res) = names(p)
   p_res = p_res[seq(1,nrow(p_res),thin),]
   
-  sd_res = sd[-(1:burnin)]
-  sd_res = sd_res[seq(1,length(sd_res),thin)]
+  var_res = sigma2[-(1:burnin)]
+  var_res = var_res[seq(1,length(var_res),thin)]
   
   indices = (2+length(candvars)):(2*length(candvars) + 2)
   trt_eff_posterior = mod_mat[,-indices] %*% t(chain_res[,indices])
@@ -138,8 +140,8 @@ runMHPark <- function(data,
   }
   
   geweke.trt <- geweke.diag(colMeans(trt_eff_posterior), frac1=0.25, frac2=0.25)[[1]]
-  geweke.sd_res <- geweke.diag(sd_res, frac1=0.25, frac2=0.25)[[1]]
-  geweke.conv <- !(max(abs(geweke.sd_res))>4 | max(abs(geweke.trt))>4)
+  geweke.var_res <- geweke.diag(var_res, frac1=0.25, frac2=0.25)[[1]]
+  geweke.conv <- !(max(abs(geweke.var_res))>4 | max(abs(geweke.trt))>4)
   
   if (!is.na(geweke.conv) & geweke.conv) {
     return(list(success = TRUE,
@@ -147,7 +149,7 @@ runMHPark <- function(data,
                 trt_eff_posterior = trt_eff_posterior,
                 p = p_res, 
                 vars_prop = vars_prop_res, 
-                sd = sd_res, 
+                sigma2 = sigma2_error_res, 
                 indices = indices
                 ))
   } else {
@@ -168,7 +170,7 @@ parseMHPark <- function(curdata,
   candvars = c(candsplinevars, candbinaryvars)
   formula_all = paste0("Y ~ ", paste(c(candvars,paste0(candvars, "*trt")),collapse="+"))
   mod_ols = lm(as.formula(formula_all), data=curdata)
-  startvalue = c(sigma(mod_ols),
+  startvalue = c(sigma(mod_ols)^2,
                  coef(mod_ols)
   )
   

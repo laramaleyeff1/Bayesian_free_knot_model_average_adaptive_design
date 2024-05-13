@@ -3,7 +3,8 @@
 #                                   Contact: laramaleyeff@gmail.com                                  
 #                                       Last updated: April 2024                                       
 ######################################################################################################
-
+library(splines)
+library(coda)
 source("mcmc_maleyeff_helper.R")
 
 #
@@ -82,7 +83,7 @@ runMHMaley <- function(data,
                        degree = 3,
                        k_max = 9,  
                        sigma_v = 0.1,
-                       lambda_1 = 0.1,
+                       lambda_1 = 0.01,
                        lambda_2 = 1,
                        a_0 = 0.01,
                        b_0 = 0.01,
