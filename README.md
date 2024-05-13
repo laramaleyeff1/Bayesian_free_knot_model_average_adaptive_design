@@ -17,7 +17,8 @@
 
 This project contains the supporting R code for “An adaptive enrichment design using Bayesian model averaging for selection and threshold-identification of tailoring variables”. 
 
-    .        
+    .   
+    ├── results:                    Empty folder to store simulation results
     ├── mcmc_liu.R:                 Code to fit penalized spline model of Liu et al. (2022), adapted to continuous outcomes
     ├── mcmc_liu_helper.R:          Helper functions for mcmc_liu.R
     ├── mcmc_maleyeff.R:            Code to fit proposed free knot Bayesian model averaged model
