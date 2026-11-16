@@ -43,7 +43,8 @@ runMHPark <- function(data,
                       thin,
                       family = gaussian(link = "identity"),
                       mu,
-                      tau
+                      tau,
+                      force_main_trt = TRUE
                       ) {
   library(coda)
   iterations = B*thin + burnin
@@ -55,7 +56,7 @@ runMHPark <- function(data,
   p = array(dim = c(iterations+1,n_params - 1))
   chain[1,] = startvalue[-1]
   colnames(chain) = names(startvalue[-1])
-
+  print(paste("force_main_trt:",force_main_trt))
   sigma2[1] = startvalue[1]
   
 
@@ -72,7 +73,9 @@ runMHPark <- function(data,
     prob_main = prob_main/(prob_main +
                              (1-p[i,1:(n_vars+1)])*dnorm(chain[i,2:(n_vars+2)],0,tau))
 
-    prob_main[n_vars + 1] = 1
+    if (force_main_trt) {
+      prob_main[n_vars + 1] = 1
+    }
     vars_prop[i+1,1:(n_vars+1)] = rbinom(n_vars + 1,1,prob_main)
 
     # probs_incl = p[i,]*dnorm(chain[i,-c(1)],0,mu*tau)
@@ -149,7 +152,7 @@ runMHPark <- function(data,
                 trt_eff_posterior = trt_eff_posterior,
                 p = p_res, 
                 vars_prop = vars_prop_res, 
-                sigma2 = sigma2_error_res, 
+                sigma2 = var_res, 
                 indices = indices
                 ))
   } else {

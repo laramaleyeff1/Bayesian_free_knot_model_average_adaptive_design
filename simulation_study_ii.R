@@ -7,6 +7,11 @@
 #                                       Last updated: April 2024                                       
 ######################################################################################################
 
+#   Parameters used in the manuscript (Simulation Study II), e.g. scenario 8:
+#     Rscript simulation_study_ii.R <scenario> 0.975 0.01 1 0.2 0 <index>
+#     scenario = scenario, B_1 = 0.975, lambda_1 = 0.01, lambda_2 = 1,
+#     alpha = 0.2, tune = 0 (all methods)
+
 start_time = Sys.time()
 
 params <- commandArgs(trailingOnly=TRUE)
@@ -21,7 +26,9 @@ lambda_2 <- as.numeric(params[4])
 
 alpha <- as.numeric(params[5])
 
-index <- as.numeric(params[6])
+tune <- as.numeric(params[6])
+
+index <- as.numeric(params[7])
 
 
 source("run_full_trial.R")
@@ -34,6 +41,9 @@ library(plyr)
 no_cont = 2
 no_bin = 0
 
+tune[tune == 0] <- "all"
+tune[tune == 1] <- "liu"
+tune[tune == 2] <- "maleyeff"
 # sim_iters: Number of simulation iterations, when index = 0 we are testing so
 # only one iteration is run
 sim_iters = 10
@@ -207,28 +217,32 @@ results = foreach(i=1:sim_iters, .combine='rbind.fill') %dopar% {
   datas = generate_data(scenario)
   family = gaussian()
 
-  start_time_liu = Sys.time()
-  print("Liu")
-  results_liu = runTrial(datas$data_pool,
-                         data_test,
-                         candsplinevars,
-                         candbinaryvars,
-                         parseMHLiu,
-                         getCutoffLiu,
-                         alpha,
-                         B_1 = B_1,
-                         B_2 = B_2,
-                         B = 2000,
-                         burnin = 30000,
-                         thin = 10,
-                         family = family,
-                         true_tailoring_vars = datas$true_tailoring_vars,
-                         interim_n = interim_n,
-                         numIntKnots = numIntKnots
-  )
-  end_time_liu = Sys.time()
-  results_liu$time = difftime(end_time_liu, start_time_liu, units = "mins")
-  colnames(results_liu) = paste0("liu_",colnames(results_liu))
+  if (tune != "maleyeff") {
+    start_time_liu = Sys.time()
+    print("Liu")
+    results_liu = runTrial(datas$data_pool,
+                           data_test,
+                           candsplinevars,
+                           candbinaryvars,
+                           parseMHLiu,
+                           getCutoffLiu,
+                           alpha,
+                           B_1 = B_1,
+                           B_2 = B_2,
+                           B = 2000,
+                           burnin = ifelse(index==0,5000,30000),
+                           thin = ifelse(index==0, 1, 10),
+                           family = family,
+                           true_tailoring_vars = datas$true_tailoring_vars,
+                           interim_n = interim_n,
+                           numIntKnots = numIntKnots
+    )
+    end_time_liu = Sys.time()
+    results_liu$time = difftime(end_time_liu, start_time_liu, units = "mins")
+    colnames(results_liu) = paste0("liu_",colnames(results_liu))
+  } else {
+    results_liu = data.frame(liu_success = FALSE)
+  }
 
   # We don't include Park's results in simulation study, but they can be included
   if (FALSE) {
@@ -259,29 +273,34 @@ results = foreach(i=1:sim_iters, .combine='rbind.fill') %dopar% {
     results_park = data.frame(park_success = FALSE)
   }
  
-  print("Maleyeff")
-  start_time_maley = Sys.time()
-  results_maley = runTrial(datas$data_pool,
-                           data_test,
-                           candsplinevars,
-                           candbinaryvars,
-                           parseMHMaley,
-                           getCutoffMaley,
-                           alpha,
-                           B_1,
-                           B_2,
-                           B = 2000,
-                           burnin = 30000,
-                           thin = 10,
-                           family = family,
-                           true_tailoring_vars = datas$true_tailoring_vars,
-                           interim_n = interim_n,
-                           lambda_1 = lambda_1,
-                           lambda_2 = lambda_2
-  )
-  end_time_maley = Sys.time()
-  results_maley$time = difftime(end_time_maley, start_time_maley, units = "mins")
-  colnames(results_maley) = paste0("maley_",colnames(results_maley))
+  if (tune != "liu") {
+    print("Maleyeff")
+    start_time_maley = Sys.time()
+    results_maley = runTrial(datas$data_pool,
+                             data_test,
+                             candsplinevars,
+                             candbinaryvars,
+                             parseMHMaley,
+                             getCutoffMaley,
+                             alpha,
+                             B_1,
+                             B_2,
+                             B = 2000,
+                             burnin = ifelse(index==0,5000,30000),
+                             thin = ifelse(index==0, 1, 10),
+                             family = family,
+                             true_tailoring_vars = datas$true_tailoring_vars,
+                             interim_n = interim_n,
+                             lambda_1 = lambda_1,
+                             lambda_2 = lambda_2
+    )
+    end_time_maley = Sys.time()
+    results_maley$time = difftime(end_time_maley, start_time_maley, units = "mins")
+    colnames(results_maley) = paste0("maley_",colnames(results_maley))
+  } else {
+    results_maley = data.frame(maley_success = FALSE)
+  }
+  
   return(cbind(results_liu,
                results_park,
                results_maley))
@@ -302,6 +321,7 @@ results$lambda_2 = lambda_2
 results$numIntKnots = numIntKnots
 results$tau = tau
 results$mu = mu
+results$tune = tune
 
 results$candbinaryvars = paste(candbinaryvars,collapse=",")
 results$candsplinevars = paste(candsplinevars,collapse=",")
@@ -321,6 +341,7 @@ out.name = paste0("all_trials_", paste( "scen", scenario,
                                         "lambda_2", lambda_2,
                                         "alpha", alpha,
                                         "numIntKnots", numIntKnots,
+                                        "tune", tune,
                                         "index", index, sep="_"),".csv")
 
 write.csv(results, out.name, row.names=FALSE)

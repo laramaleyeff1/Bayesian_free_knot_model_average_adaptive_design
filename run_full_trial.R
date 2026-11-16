@@ -3,7 +3,17 @@
 #           Section 2.4 of Maleyeff et al. (2024). This outer shell is used with all three
 #                       models (proposed FK-BMA, PLTY, and LKR) in the manuscript.
 #                                   Contact: laramaleyeff@gmail.com                                  
-#                                       Last updated: April 2024                                       
+#                                       Last updated: November 2026
+
+#   Update (November 2026): The prevalence of the effective subspace and the average
+#   treatment effect (ATE) within it are now computed with weights. After adaptive
+#   enrichment, the pooled trial sample over-represents patients from earlier effective
+#   subspaces, so it no longer reflects the target population's covariate distribution.
+#   Unweighted averages over the enriched sample give biased estimates of prevalence
+#   and of the ATE in the effective subspace. With one interim analysis, as in the
+#   manuscript, the first-interim estimates were unaffected, and only the final
+#   analysis changes. The weights are implemented for a single enrichment step; designs with 
+#   more interim analyses require the generalized weights described in runTrial.
 ######################################################################################################
 
 # First, load the code for each model fitting procedure
@@ -30,6 +40,9 @@ source("mcmc_maleyeff.R")
 #                 candbinaryvars    Vector with names of binary variables
 #                 last              Boolean indicating whether this is the last interim analysis (if so, an 
 #                                   assessment of futility is unnecessary)
+#                 ipw_weights       Weights that make the (possibly enriched) sample
+#                                   representative of the target population. Defaults to
+#                                   equal weights (correct when no enrichment has occurred)
 #                 family            Family and link function of outcome, defaults to continuous
 #                 B                 The number of posterior samples
 #                 burnin            The number of burn-in samples
@@ -60,6 +73,7 @@ interimAnalysis <- function(trialfunction,
                             candsplinevars,
                             candbinaryvars,
                             last,
+                            ipw_weights = NULL,
                             family,
                             B,
                             burnin,
@@ -73,6 +87,7 @@ interimAnalysis <- function(trialfunction,
                             pi,
                             ...) {
   
+  if (is.null(ipw_weights)) ipw_weights <- rep(1, nrow(curdata))
   for (i in 1:5) {
     trial_results = trialfunction(curdata,
                                   candsplinevars,
@@ -91,28 +106,35 @@ interimAnalysis <- function(trialfunction,
   if (trial_results$success) {
     trt_eff_posterior = trial_results$trt_eff_posterior
     quantiles = rowQuantiles(trt_eff_posterior,probs = c(alpha))
-    curdata_subgroup = curdata[which(quantiles>e_1),]
 
-    trt_eff_posterior_subgroup = trt_eff_posterior[which(quantiles>0),]
-    
+
     trt_eff_per_person = rowMeans(trt_eff_posterior)
     mse = mean((trt_eff_per_person  - curdata$truth)^2)
     print(paste("mse: ", mse))
     print(paste("trial success: ", trial_results$geweke.conv))
    
-    prop_eff = nrow(curdata_subgroup)/nrow(curdata)
-    print(paste("prop_eff:", prop_eff))
-    print(paste("included vars: ", paste(trial_results$included_vars,collapse=",")))
+   
 
     mean_subgroup_ate = 0
     mean_subgroup_ate_gr_cutoff = 0
     mean_subgroup_ate_l_cutoff = 0
     stop_efficacy = FALSE
     stop_futility = FALSE
+    in_eff <- quantiles > e_1
+    w_eff  <- ipw_weights[in_eff]
+    trt_eff_posterior_subgroup <- trt_eff_posterior[in_eff, , drop = FALSE]
+    # Weighted prevalence of the effective subspace. After enrichment, the raw
+    # proportion in the pooled sample overstates the population prevalence.
+    prop_eff <- sum(w_eff) / sum(ipw_weights)
+    print(paste("prop_eff:", prop_eff))
+    print(paste("included vars: ", paste(trial_results$included_vars,collapse=",")))
 
     if (prop_eff > 0.1) {
-      # Compute the average treatment effect for the sensitive subgroup
-      combined_subgroup_ate = colMeans(trt_eff_posterior_subgroup)
+      # Weighted average treatment effect in the effective subspace, for each
+      # posterior draw. The weights restore the population covariate distribution
+      # within the subspace, so the estimate targets the population ATE in that
+      # subspace rather than the ATE in the enriched sample.
+      combined_subgroup_ate <- colSums(trt_eff_posterior_subgroup * w_eff) / sum(w_eff)
       mean_subgroup_ate = mean(combined_subgroup_ate)
       mean_subgroup_ate_gr_cutoff = mean(combined_subgroup_ate > b_1)
       mean_subgroup_ate_l_cutoff = mean(combined_subgroup_ate < b_2)
@@ -140,7 +162,9 @@ interimAnalysis <- function(trialfunction,
                 trial_results = trial_results,
                 mean_subgroup_ate = mean_subgroup_ate,
                 mean_subgroup_ate_gr_cutoff = mean_subgroup_ate_gr_cutoff,
-                mean_subgroup_ate_l_cutoff = mean_subgroup_ate_l_cutoff
+                mean_subgroup_ate_l_cutoff = mean_subgroup_ate_l_cutoff,
+                in_eff = in_eff,
+                prop_eff_unweighted = mean(in_eff)
                )
     )
   } else {
@@ -236,6 +260,9 @@ runTrial <- function(data_pool,
                      enrich = TRUE,
                      ...
 ) {
+  if (enrich && length(interim_n) > 2) {
+    stop("Enrichment weights are implemented for one enrichment step (two analyses) only.")
+  }
   library(matrixStats)
   library(coda)
   library(splines)
@@ -255,15 +282,35 @@ runTrial <- function(data_pool,
                                         interim_analysis_results$trial_results,
                                         alpha)
       data_indx = sample(which(quantile_interim>e_1),interim_n[interim])
+      # Record whether each patient's covariates lie in the interim effective
+      # subspace X*_1, which defines eligibility after enrichment. Stage-1 patients
+      # use the first-interim classification; all newly enrolled patients are in X*_1
+      # by construction.
+      in_E1 <- c(interim_analysis_results$in_eff, rep(TRUE, interim_n[interim]))
       curdata = rbind(curdata, data_pool[data_indx,])
     } 
     
     if (interim == 1 | !enrich) {
       data_indx = sample(nrow(data_pool), interim_n[interim])
-      curdata = data_pool[data_indx,]
+      curdata <- if (interim == 1) data_pool[data_indx, ] else rbind(curdata, data_pool[data_indx, ])
     } 
     
-    assign(paste0("true_prop_eff_",interim),mean(curdata$truth>0))
+    # Weights for one enrichment step. Inside X*_1, stage-1 and stage-2 patients
+    # share the population's conditional covariate distribution, but the region is
+    # over-sampled, so each patient there gets weight
+    #   (# stage-1 patients in X*_1) / (# all patients in X*_1).
+    # Outside X*_1, only stage-1 patients are present, and each gets weight 1.
+    # With K enrichment steps, generalize to
+    #   w_i proportional to 1 / sum_k n_k * 1{x_i in E_k} / P(E_k),
+    # where E_k is the eligibility region at stage k and P(E_k) is estimated from
+    # the pre-enrichment sample.
+    w <- if (interim > 1 && enrich) {
+      ifelse(in_E1, sum(in_E1[1:interim_n[1]]) / sum(in_E1), 1)
+    } else rep(1, nrow(curdata))
+    
+    # Weighted, so it is comparable to prop_eff, which is also weighted
+    assign(paste0("true_prop_eff_", interim),
+           sum(w * (curdata$truth > 0)) / sum(w))
     
     data_pool = data_pool[-data_indx,]
     
@@ -272,6 +319,7 @@ runTrial <- function(data_pool,
                                                candsplinevars,
                                                candbinaryvars,
                                                last = (interim == length(interim_n)),
+                                               ipw_weights = w,
                                                family,
                                                B,
                                                burnin,
@@ -292,6 +340,7 @@ runTrial <- function(data_pool,
     assign(paste0("prop_eff_",interim),interim_analysis_results$prop_eff)
     assign(paste0("stop_efficacy_",interim),interim_analysis_results$stop_efficacy)
     assign(paste0("stop_futility_",interim),interim_analysis_results$stop_futility)
+    assign(paste0("prop_eff_unweighted_", interim), interim_analysis_results$prop_eff_unweighted)
 
     # If the proportion effective is ever less than one,
     # we are performing a subgroup-specific analysis.
@@ -364,6 +413,7 @@ runTrial <- function(data_pool,
     returned[[paste0("stop_futility_",i)]] = eval(parse(text=paste0("stop_futility_",i)))
     returned[[paste0("prop_eff_",i)]] = eval(parse(text=paste0("prop_eff_",i)))
     returned[[paste0("true_prop_eff_",i)]] = eval(parse(text=paste0("true_prop_eff_",i)))
+    returned[[paste0("prop_eff_unweighted_",i)]] = eval(parse(text=paste0("prop_eff_unweighted_",i)))
   }
   
   return(returned)

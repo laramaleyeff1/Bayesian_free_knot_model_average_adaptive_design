@@ -32,6 +32,13 @@ This project contains the supporting R code for “An adaptive enrichment design
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
+<!-- UPDATES -->
+## Updates
+
+**November 2026**
+- Corrected how the prevalence and average treatment effect of the effective subspace are estimated after enrichment.
+- Reran the simulation studies with the corrected code.
+
 <!-- CONTACT -->
 ## Contact
 

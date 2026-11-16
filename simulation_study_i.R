@@ -6,6 +6,10 @@
 #                                   Contact: laramaleyeff@gmail.com                                  
 #                                       Last updated: April 2024                                       
 ######################################################################################################
+#   Parameters used in the manuscript (Simulation Study I), e.g. scenario 8:
+#     Rscript simulation_study_i.R <scenario> 0.975 100 0.05 0.2 1 0.3 1 0 <index>
+#     scenario = scenario, B_1 = 0.975, mu = 100, tau = 0.05, lambda_1 = 0.2,
+#     lambda_2 = 1, alpha = 0.3, background = 1, tune = 0 (all methods)
 
 start_time = Sys.time()
 
@@ -34,7 +38,10 @@ alpha <- as.numeric(params[7])
 # Trend in the control group, (=0: no trend; =1: trend described in Table S1)
 background <- as.numeric(params[8])
 
-index <- as.numeric(params[9])
+# Used to determine which method should be used (=0: all, =1: park, =2: fk-bma)
+tune <- as.numeric(params[9])
+
+index <- as.numeric(params[10])
 
 
 source("run_full_trial.R")
@@ -46,6 +53,10 @@ library(plyr)
 # no_bin: Number of binary candidate tailoring variables
 no_cont = 1
 no_bin = 5
+
+tune[tune == 0] <- "all"
+tune[tune == 1] <- "park"
+tune[tune == 2] <- "maleyeff"
 
 # sim_iters: Number of simulation iterations, when index = 0 we are testing so
 # only one iteration is run
@@ -75,7 +86,8 @@ if (no_cont == 0) {
 # performed, denoting how many individuals are added to the sample at each one.
 # Here, the total sample size is 500 with one interim analysis at 300 individuals.
 interim_n = c(300,200)
-
+# Force inclusion of the main effect of treatment in PLTY (= FALSE in Web Appendix G)
+force_main_trt = TRUE
 # Functions describing the functional form of the interaction term for each 
 # true tailoring variable. See Table 1 for a description.
 scen_1 <- 0
@@ -212,7 +224,7 @@ generate_data <- function(scenario) {
   # Two binary
   if (scenario == 6) {
     data_pool$truth = scen_6(data_pool$Z_4,data_pool$Z_1)
-    true_tailoring_vars = c("Z_4","Z_1")
+    true_tailoring_vars = c("Z_1","Z_4")
   }
 
   # Linear continuous
@@ -248,46 +260,56 @@ results = foreach(i=1:sim_iters, .combine='rbind.fill') %dopar% {
   datas = generate_data(scenario)
   family = gaussian()
 
-  print("Park")
-  start_time_park = Sys.time()
-  results_park = runTrial(datas$data_pool,data_test,candsplinevars,
-                          candbinaryvars,parseMHPark,getCutoffPark,
-                          alpha,
-                          B_1,
-                          B_2,
-                          B = 5000,
-                          burnin = 10000,
-                          thin = 1,
-                          family=family,
-                          true_tailoring_vars = datas$true_tailoring_vars,
-                          interim_n = interim_n,
-                          mu = mu,
-                          tau = tau
-  )
-  end_time_park = Sys.time()
-  results_park$time = difftime(end_time_park, start_time_park, units = "mins")
-  colnames(results_park) = paste0("park_",colnames(results_park))
-  
+  if (tune != "maleyeff") {
+    print("Park")
+    start_time_park = Sys.time()
+    results_park = runTrial(datas$data_pool,data_test,candsplinevars,
+                            candbinaryvars,parseMHPark,getCutoffPark,
+                            alpha,
+                            B_1,
+                            B_2,
+                            B = 5000,
+                            burnin = 10000,
+                            thin = 1,
+                            family=family,
+                            true_tailoring_vars = datas$true_tailoring_vars,
+                            interim_n = interim_n,
+                            mu = mu,
+                            tau = tau,
+                            force_main_trt = force_main_trt
+    )
+    end_time_park = Sys.time()
+    results_park$time = difftime(end_time_park, start_time_park, units = "mins")
+    colnames(results_park) = paste0("park_",colnames(results_park))
+  } else {
+    results_park = data.frame(park_success = FALSE)
+  }
+
  
-  print("Maleyeff")
-  start_time_maley = Sys.time()
-  results_maley = runTrial(datas$data_pool,data_test,candsplinevars,
-                           candbinaryvars,parseMHMaley,getCutoffMaley,
-                           alpha,
-                           B_1,
-                           B_2,
-                           B = 2000,
-                           burnin = 30000,
-                           thin = 10,
-                           family=family,
-                           true_tailoring_vars = datas$true_tailoring_vars,
-                           interim_n = interim_n,
-                           lambda_1 = lambda_1,
-                           lambda_2 = lambda_2
-  )
-  end_time_maley = Sys.time()
-  results_maley$time = difftime(end_time_maley, start_time_maley, units = "mins")
-  colnames(results_maley) = paste0("maley_",colnames(results_maley))
+  if (tune != "park") {
+    print("Maleyeff")
+    start_time_maley = Sys.time()
+    results_maley = runTrial(datas$data_pool,data_test,candsplinevars,
+                             candbinaryvars,parseMHMaley,getCutoffMaley,
+                             alpha,
+                             B_1,
+                             B_2,
+                             B = 2000,
+                             burnin = 30000,
+                             thin = 10,
+                             family=family,
+                             true_tailoring_vars = datas$true_tailoring_vars,
+                             interim_n = interim_n,
+                             lambda_1 = lambda_1,
+                             lambda_2 = lambda_2
+    )
+    end_time_maley = Sys.time()
+    results_maley$time = difftime(end_time_maley, start_time_maley, units = "mins")
+    colnames(results_maley) = paste0("maley_",colnames(results_maley))
+  } else {
+    results_maley = data.frame(maley_success = FALSE)
+  }
+ 
   return(cbind(results_park,
                results_maley))
 }
@@ -309,6 +331,8 @@ results$tau = tau
 results$mu = mu
 results$candbinaryvars = paste(candbinaryvars,collapse=",")
 results$candsplinevars = paste(candsplinevars,collapse=",")
+results$tune = tune
+results$force_main_trt = force_main_trt
 
 end_time = Sys.time()
 results$time = difftime(end_time, start_time, units = "mins")
@@ -325,6 +349,8 @@ out.name = paste0("all_trials_", paste( "scen",    scenario,
                                         "lambda_2", lambda_2,
                                         "background",background,
                                         "alpha",    alpha,
+                                        "tune",     tune,
+                                        "force_main_trt", force_main_trt,
                                         "index",    index, sep="_"),".csv")
 
 write.csv(results, out.name, row.names=FALSE)
